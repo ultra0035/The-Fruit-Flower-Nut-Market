@@ -292,11 +292,24 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setTrackedOrderId(newOrder.id);
     showNotification(`Order #${newOrder.id} placed successfully!`);
 
-    // Sync to Supabase in background
+    // Sync to Supabase if configured
     if (isSupabaseConfigured()) {
-      supabaseService.createOrder(newOrder).catch((err) => {
-        console.warn('Could not save order to Supabase:', err);
-      });
+      supabaseService
+        .createOrder(newOrder)
+        .then((res) => {
+          if (!res.success) {
+            console.warn('Could not save order to Supabase:', res.error);
+            showNotification(`⚠️ Order saved locally, but database sync error: ${res.error}`);
+          } else {
+            showNotification(`✅ Order #${newOrder.id} saved to live Supabase database!`);
+          }
+        })
+        .catch((err) => {
+          console.warn('Could not save order to Supabase:', err);
+          showNotification(`⚠️ Order saved locally (database unreachable)`);
+        });
+    } else {
+      showNotification(`Order #${newOrder.id} placed! (Stored in Demo Local Cache)`);
     }
 
     return newOrder;

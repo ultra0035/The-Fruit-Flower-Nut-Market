@@ -1,22 +1,71 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Product, Driver, SuburbDelivery, Order, OrderStatus, ProofOfDelivery } from '../types';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+export const getSupabaseConfig = () => {
+  const envUrl = import.meta.env.VITE_SUPABASE_URL;
+  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const isSupabaseConfigured = (): boolean => {
-  return Boolean(
-    supabaseUrl &&
-    supabaseAnonKey &&
-    supabaseUrl !== 'https://your-project-id.supabase.co' &&
-    supabaseUrl.startsWith('https://') &&
-    supabaseAnonKey !== 'your-anon-public-key'
+  let localUrl = '';
+  let localKey = '';
+  try {
+    localUrl = localStorage.getItem('supabase_custom_url') || '';
+    localKey = localStorage.getItem('supabase_custom_key') || '';
+  } catch {}
+
+  const url = (envUrl || localUrl || '').trim();
+  const key = (envKey || localKey || '').trim();
+
+  const isConfigured = Boolean(
+    url &&
+    key &&
+    url !== 'https://your-project-id.supabase.co' &&
+    url.startsWith('https://') &&
+    key !== 'your-anon-public-key'
   );
+
+  return {
+    url,
+    key,
+    isConfigured,
+    source: envUrl ? 'env' : localUrl ? 'local' : 'none',
+  };
 };
 
-export const supabase: SupabaseClient | null = isSupabaseConfigured()
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null;
+export const isSupabaseConfigured = (): boolean => {
+  return getSupabaseConfig().isConfigured;
+};
+
+let clientInstance: SupabaseClient | null = null;
+let lastUsedKey = '';
+
+export const getSupabase = (): SupabaseClient | null => {
+  const config = getSupabaseConfig();
+  if (!config.isConfigured) return null;
+
+  if (!clientInstance || lastUsedKey !== config.key) {
+    clientInstance = createClient(config.url, config.key);
+    lastUsedKey = config.key;
+  }
+  return clientInstance;
+};
+
+export const supabase: SupabaseClient | null = getSupabase();
+
+export const saveCustomCredentials = (url: string, key: string) => {
+  try {
+    localStorage.setItem('supabase_custom_url', url.trim());
+    localStorage.setItem('supabase_custom_key', key.trim());
+  } catch {}
+  clientInstance = null;
+};
+
+export const clearCustomCredentials = () => {
+  try {
+    localStorage.removeItem('supabase_custom_url');
+    localStorage.removeItem('supabase_custom_key');
+  } catch {}
+  clientInstance = null;
+};
 
 // Map database order row + items to application Order type
 export const formatDbOrder = (row: any, items: any[] = []): Order => {
@@ -52,10 +101,48 @@ export const formatDbOrder = (row: any, items: any[] = []): Order => {
 };
 
 export const supabaseService = {
+  // Test connection to Supabase
+  async testConnection(): Promise<{ connected: boolean; message: string; details?: any }> {
+    const config = getSupabaseConfig();
+    if (!config.isConfigured) {
+      return {
+        connected: false,
+        message:
+          'Supabase environment variables are missing or set to placeholder values. On Vercel, ensure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set and click Redeploy.',
+      };
+    }
+    const client = getSupabase();
+    if (!client) {
+      return { connected: false, message: 'Could not initialize Supabase client.' };
+    }
+    try {
+      const { data, error } = await client.from('orders').select('id').limit(1);
+      if (error) {
+        return {
+          connected: false,
+          message: `Supabase returned error: ${error.message} (Code: ${error.code || 'UNKNOWN'})`,
+          details: error,
+        };
+      }
+      return {
+        connected: true,
+        message: 'Connected successfully to Supabase! Table public.orders is accessible.',
+        details: { rowsFound: data?.length || 0 },
+      };
+    } catch (err: any) {
+      return {
+        connected: false,
+        message: err.message || 'Unknown network error connecting to Supabase.',
+        details: err,
+      };
+    }
+  },
+
   // Products
   async getProducts(): Promise<Product[]> {
-    if (!supabase) return [];
-    const { data, error } = await supabase
+    const client = getSupabase();
+    if (!client) return [];
+    const { data, error } = await client
       .from('products')
       .select('*')
       .order('created_at', { ascending: false });
@@ -82,8 +169,9 @@ export const supabaseService = {
   },
 
   async upsertProduct(product: Product): Promise<boolean> {
-    if (!supabase) return false;
-    const { error } = await supabase.from('products').upsert({
+    const client = getSupabase();
+    if (!client) return false;
+    const { error } = await client.from('products').upsert({
       id: product.id,
       name: product.name,
       category: product.category,
@@ -102,8 +190,9 @@ export const supabaseService = {
 
   // Drivers
   async getDrivers(): Promise<Driver[]> {
-    if (!supabase) return [];
-    const { data, error } = await supabase.from('drivers').select('*');
+    const client = getSupabase();
+    if (!client) return [];
+    const { data, error } = await client.from('drivers').select('*');
     if (error) {
       console.warn('Supabase getDrivers error:', error.message);
       return [];
@@ -125,8 +214,9 @@ export const supabaseService = {
 
   // Delivery Zones
   async getDeliveryZones(): Promise<SuburbDelivery[]> {
-    if (!supabase) return [];
-    const { data, error } = await supabase.from('delivery_zones').select('*');
+    const client = getSupabase();
+    if (!client) return [];
+    const { data, error } = await client.from('delivery_zones').select('*');
     if (error) {
       console.warn('Supabase getDeliveryZones error:', error.message);
       return [];
@@ -143,8 +233,9 @@ export const supabaseService = {
 
   // Orders
   async getOrders(): Promise<Order[]> {
-    if (!supabase) return [];
-    const { data: orderRows, error: ordersError } = await supabase
+    const client = getSupabase();
+    if (!client) return [];
+    const { data: orderRows, error: ordersError } = await client
       .from('orders')
       .select('*, order_items(*)')
       .order('created_at', { ascending: false });
@@ -159,11 +250,12 @@ export const supabaseService = {
     );
   },
 
-  async createOrder(order: Order): Promise<boolean> {
-    if (!supabase) return false;
+  async createOrder(order: Order): Promise<{ success: boolean; error?: string }> {
+    const client = getSupabase();
+    if (!client) return { success: false, error: 'Database client not initialized' };
 
     // 1. Insert order parent record
-    const { error: orderError } = await supabase.from('orders').insert({
+    const { error: orderError } = await client.from('orders').insert({
       id: order.id,
       customer_name: order.customerName,
       customer_phone: order.customerPhone,
@@ -187,7 +279,7 @@ export const supabaseService = {
 
     if (orderError) {
       console.error('Failed to create order in Supabase:', orderError);
-      return false;
+      return { success: false, error: orderError.message };
     }
 
     // 2. Insert order items
@@ -202,21 +294,23 @@ export const supabaseService = {
         image_url: item.imageUrl,
       }));
 
-      const { error: itemsError } = await supabase
+      const { error: itemsError } = await client
         .from('order_items')
         .insert(itemsToInsert);
 
       if (itemsError) {
         console.error('Failed to insert order items in Supabase:', itemsError);
+        return { success: true, error: `Order saved, but items warning: ${itemsError.message}` };
       }
     }
 
-    return true;
+    return { success: true };
   },
 
   async updateOrderStatus(orderId: string, status: OrderStatus): Promise<boolean> {
-    if (!supabase) return false;
-    const { error } = await supabase
+    const client = getSupabase();
+    if (!client) return false;
+    const { error } = await client
       .from('orders')
       .update({ status })
       .eq('id', orderId);
@@ -229,8 +323,9 @@ export const supabaseService = {
     driverName: string,
     driverPhone: string
   ): Promise<boolean> {
-    if (!supabase) return false;
-    const { error } = await supabase
+    const client = getSupabase();
+    if (!client) return false;
+    const { error } = await client
       .from('orders')
       .update({
         assigned_driver_id: driverId,
@@ -244,8 +339,9 @@ export const supabaseService = {
   },
 
   async completeDelivery(orderId: string, proof: ProofOfDelivery): Promise<boolean> {
-    if (!supabase) return false;
-    const { error } = await supabase
+    const client = getSupabase();
+    if (!client) return false;
+    const { error } = await client
       .from('orders')
       .update({
         status: 'delivered',
@@ -258,9 +354,10 @@ export const supabaseService = {
 
   // Real-time listener for orders table
   subscribeToOrders(onUpdate: () => void) {
-    if (!supabase) return null;
+    const client = getSupabase();
+    if (!client) return null;
 
-    const channel = supabase
+    const channel = client
       .channel('schema-db-changes')
       .on(
         'postgres_changes',
@@ -276,7 +373,7 @@ export const supabaseService = {
       .subscribe();
 
     return () => {
-      supabase?.removeChannel(channel);
+      client?.removeChannel(channel);
     };
   },
 };

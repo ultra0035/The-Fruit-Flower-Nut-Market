@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
 import { STORE_INFO } from '../data/mockData';
 import {
@@ -11,8 +11,10 @@ import {
   Sparkles,
   RotateCcw,
   Package,
+  Database,
 } from 'lucide-react';
 import { PortalType } from '../types';
+import { DatabaseStatusModal } from './common/DatabaseStatusModal';
 
 interface HeaderProps {
   onOpenCart?: () => void;
@@ -20,6 +22,7 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ onOpenCart, onOpenTracking }) => {
+  const [isDbModalOpen, setIsDbModalOpen] = useState(false);
   const {
     currentPortal,
     setCurrentPortal,
@@ -72,16 +75,24 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCart, onOpenTracking }) =>
           </div>
 
           <div className="flex items-center gap-2.5 ml-auto text-[11px]">
-            {isDatabaseConnected ? (
-              <span className="flex items-center gap-1 bg-emerald-900/80 text-emerald-200 border border-emerald-600/50 px-2 py-0.5 rounded font-semibold">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span>Supabase Live</span>
-              </span>
-            ) : (
-              <span className="hidden sm:flex items-center gap-1 bg-emerald-900/50 text-emerald-300 px-2 py-0.5 rounded font-medium text-[10px]">
-                <span>Demo (Local Cache)</span>
-              </span>
-            )}
+            <button
+              onClick={() => setIsDbModalOpen(true)}
+              title="Click to check or configure Supabase connection"
+              className="flex items-center gap-1.5 cursor-pointer transition-all hover:scale-105 active:scale-95"
+            >
+              {isDatabaseConnected ? (
+                <span className="flex items-center gap-1 bg-emerald-900/90 text-emerald-200 border border-emerald-500/60 hover:border-emerald-400 px-2 py-0.5 rounded font-semibold shadow-xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <Database className="w-3 h-3 text-emerald-300" />
+                  <span>Supabase Live</span>
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 bg-amber-900/60 text-amber-200 border border-amber-600/50 hover:border-amber-400 px-2 py-0.5 rounded font-medium text-[10px]">
+                  <Database className="w-3 h-3 text-amber-300" />
+                  <span>Demo Mode (Local)</span>
+                </span>
+              )}
+            </button>
             <span className="hidden lg:inline bg-emerald-700/80 px-2 py-0.5 rounded text-emerald-100 font-medium">
               Deliveries: Northcliff R40 · Windsor R40 · Blairgowrie R25
             </span>
@@ -211,6 +222,11 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCart, onOpenTracking }) =>
           </div>
         </div>
       </div>
+
+      <DatabaseStatusModal
+        isOpen={isDbModalOpen}
+        onClose={() => setIsDbModalOpen(false)}
+      />
     </header>
   );
 };
