@@ -108,7 +108,7 @@ export const supabaseService = {
       return {
         connected: false,
         message:
-          'Supabase environment variables are missing or set to placeholder values. On Vercel, ensure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set and click Redeploy.',
+          'Supabase environment variables are missing or set to placeholder values. Enter your Supabase URL and Anon Key below and click "Apply & Test Connection".',
       };
     }
     const client = getSupabase();
@@ -116,18 +116,29 @@ export const supabaseService = {
       return { connected: false, message: 'Could not initialize Supabase client.' };
     }
     try {
+      // Try products table first since user is managing products catalog
+      const { data: prodData, error: prodErr } = await client.from('products').select('id').limit(1);
+      if (!prodErr) {
+        return {
+          connected: true,
+          message: `Connected successfully to Supabase! Table public.products is accessible (${prodData?.length || 0} rows found).`,
+          details: { rowsFound: prodData?.length || 0, table: 'products' },
+        };
+      }
+
+      // Fallback check on orders table
       const { data, error } = await client.from('orders').select('id').limit(1);
       if (error) {
         return {
           connected: false,
-          message: `Supabase returned error: ${error.message} (Code: ${error.code || 'UNKNOWN'})`,
-          details: error,
+          message: `Supabase returned error: ${prodErr?.message || error.message} (Code: ${error.code || prodErr?.code || 'UNKNOWN'})`,
+          details: { prodErr, orderErr: error },
         };
       }
       return {
         connected: true,
         message: 'Connected successfully to Supabase! Table public.orders is accessible.',
-        details: { rowsFound: data?.length || 0 },
+        details: { rowsFound: data?.length || 0, table: 'orders' },
       };
     } catch (err: any) {
       return {

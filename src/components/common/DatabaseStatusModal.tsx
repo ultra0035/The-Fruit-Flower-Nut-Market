@@ -46,7 +46,9 @@ export const DatabaseStatusModal: React.FC<DatabaseStatusModalProps> = ({
     details?: any;
   } | null>(null);
 
-  const [customUrl, setCustomUrl] = useState(config.url || '');
+  const [customUrl, setCustomUrl] = useState(
+    config.url || 'https://dmzxcnmdtsyqmolgbmxx.supabase.co'
+  );
   const [customKey, setCustomKey] = useState(config.key || '');
   const [isSyncingOrders, setIsSyncingOrders] = useState(false);
   const [isRefreshingProducts, setIsRefreshingProducts] = useState(false);
@@ -75,23 +77,25 @@ export const DatabaseStatusModal: React.FC<DatabaseStatusModalProps> = ({
     }
   }, [isOpen]);
 
-  const handleSaveCredentials = () => {
+  const handleSaveCredentials = async () => {
     if (!customUrl.trim() || !customKey.trim()) {
       showNotification('Please provide both the Supabase URL and Anon Key');
       return;
     }
     saveCustomCredentials(customUrl, customKey);
-    showNotification('Supabase credentials saved for this browser session!');
-    runTest();
+    showNotification('Supabase credentials saved! Connecting and refreshing...');
+    await runTest();
+    await refreshFromDatabase();
   };
 
-  const handleResetCredentials = () => {
+  const handleResetCredentials = async () => {
     clearCustomCredentials();
     const updated = getSupabaseConfig();
     setCustomUrl(updated.url || '');
     setCustomKey(updated.key || '');
     showNotification('Reset to build-time environment variables');
-    runTest();
+    await runTest();
+    await refreshFromDatabase();
   };
 
   const handlePushLocalOrdersToSupabase = async () => {
@@ -116,19 +120,19 @@ export const DatabaseStatusModal: React.FC<DatabaseStatusModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl max-w-xl w-full overflow-hidden shadow-2xl border border-stone-200 animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 min-h-screen">
+      <div className="bg-white rounded-3xl max-w-xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-stone-200 animate-in fade-in zoom-in-95 duration-200 my-auto">
         {/* Header */}
-        <div className="p-5 bg-gradient-to-r from-emerald-900 to-stone-900 text-white flex items-center justify-between">
+        <div className="p-4 sm:p-5 bg-gradient-to-r from-emerald-900 to-stone-900 text-white flex items-center justify-between shrink-0 rounded-t-3xl">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-400">
               <Database className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-black flex items-center gap-2">
+              <h2 className="text-base sm:text-lg font-black flex items-center gap-2">
                 Supabase Connection Status
               </h2>
-              <p className="text-xs text-stone-300">
+              <p className="text-[11px] sm:text-xs text-stone-300">
                 Live PostgreSQL database synchronization
               </p>
             </div>
@@ -141,7 +145,7 @@ export const DatabaseStatusModal: React.FC<DatabaseStatusModalProps> = ({
           </button>
         </div>
 
-        <div className="p-6 space-y-5 text-stone-800 text-sm">
+        <div className="p-4 sm:p-6 space-y-5 text-stone-800 text-sm overflow-y-auto flex-1">
           {/* Status banner */}
           <div
             className={`p-4 rounded-2xl border flex items-start gap-3.5 ${
