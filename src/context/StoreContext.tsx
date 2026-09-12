@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
   Product,
   Order,
@@ -15,6 +15,7 @@ import {
   INITIAL_DRIVERS,
   INITIAL_ORDERS,
 } from '../data/mockData';
+import { supabaseService, isSupabaseConfigured } from '../lib/supabase';
 
 interface StoreContextType {
   products: Product[];
@@ -26,6 +27,7 @@ interface StoreContextType {
   selectedDriverId: string;
   trackedOrderId: string | null;
   notification: string | null;
+  isDatabaseConnected: boolean;
   // Cart Actions
   addToCart: (product: Product, quantity?: number) => void;
   updateCartQuantity: (productId: string, quantity: number) => void;
@@ -131,8 +133,54 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const [trackedOrderId, setTrackedOrderId] = useState<string | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
+  const [isDatabaseConnected] = useState<boolean>(isSupabaseConfigured());
 
-  // Sync to localStorage
+  // Hydrate from Supabase database if configured, with fallback to local storage
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+
+    let isMounted = true;
+    async function loadSupabaseData() {
+      try {
+        const [dbProducts, dbDrivers, dbZones, dbOrders] = await Promise.all([
+          supabaseService.getProducts(),
+          supabaseService.getDrivers(),
+          supabaseService.getDeliveryZones(),
+          supabaseService.getOrders(),
+        ]);
+
+        if (isMounted) {
+          if (dbProducts && dbProducts.length > 0) setProducts(dbProducts);
+          if (dbDrivers && dbDrivers.length > 0) setDrivers(dbDrivers);
+          if (dbZones && dbZones.length > 0) setSuburbs(dbZones);
+          if (dbOrders && dbOrders.length > 0) setOrders(dbOrders);
+        }
+      } catch (err) {
+        console.warn('Failed to load initial Supabase data:', err);
+      }
+    }
+
+    loadSupabaseData();
+
+    // Subscribe to real-time order updates across all devices/portals
+    const unsubscribe = supabaseService.subscribeToOrders(async () => {
+      try {
+        const latestOrders = await supabaseService.getOrders();
+        if (isMounted && latestOrders && latestOrders.length > 0) {
+          setOrders(latestOrders);
+        }
+      } catch (err) {
+        console.warn('Realtime orders refresh error:', err);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
+  // Sync to localStorage as offline / local cache
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
@@ -243,6 +291,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     clearCart();
     setTrackedOrderId(newOrder.id);
     showNotification(`Order #${newOrder.id} placed successfully!`);
+
+    // Sync to Supabase in background
+    if (isSupabaseConfigured()) {
+      supabaseService.createOrder(newOrder).catch((err) => {
+        console.warn('Could not save order to Supabase:', err);
+      });
+    }
+
     return newOrder;
   };
 
@@ -251,6 +307,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       prev.map((ord) => (ord.id === orderId ? { ...ord, status } : ord))
     );
     showNotification(`Order #${orderId} marked as ${status.replace(/_/g, ' ')}`);
+
+    if (isSupabaseConfigured()) {
+      supabaseService.updateOrderStatus(orderId, status).catch(console.warn);
+    }
   };
 
   const assignDriver = (orderId: string, driverId: string) => {
@@ -285,6 +345,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
 
     showNotification(`Assigned ${driver.name} to order #${orderId}`);
+
+    if (isSupabaseConfigured()) {
+      supabaseService.assignDriver(orderId, driver.id, driver.name, driver.phone).catch(console.warn);
+    }
   };
 
   const completeDelivery = (orderId: string, proof: ProofOfDelivery) => {
@@ -320,6 +384,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     showNotification(`Order #${orderId} delivered!`);
+
+    if (isSupabaseConfigured()) {
+      supabaseService.completeDelivery(orderId, proof).catch(console.warn);
+    }
   };
 
   const cancelOrder = (orderId: string) => {
@@ -329,6 +397,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       )
     );
     showNotification(`Order #${orderId} was cancelled.`);
+
+    if (isSupabaseConfigured()) {
+      supabaseService.updateOrderStatus(orderId, 'cancelled').catch(console.warn);
+    }
   };
 
   // Product CRUD
@@ -339,6 +411,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
     setProducts((prev) => [newProduct, ...prev]);
     showNotification(`Added new product: ${newProduct.name}`);
+
+    if (isSupabaseConfigured()) {
+      supabaseService.upsertProduct(newProduct).catch(console.warn);
+    }
   };
 
   const updateProduct = (updated: Product) => {
@@ -346,6 +422,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       prev.map((p) => (p.id === updated.id ? updated : p))
     );
     showNotification(`Updated: ${updated.name}`);
+
+    if (isSupabaseConfigured()) {
+      supabaseService.upsertProduct(updated).catch(console.warn);
+    }
   };
 
   const deleteProduct = (productId: string) => {
@@ -387,6 +467,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         selectedDriverId,
         trackedOrderId,
         notification,
+        isDatabaseConnected,
         addToCart,
         updateCartQuantity,
         removeFromCart,

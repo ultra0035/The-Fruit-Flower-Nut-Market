@@ -29,6 +29,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCart, onOpenTracking }) =>
     selectedDriverId,
     resetToDefaultData,
     trackedOrderId,
+    isDatabaseConnected,
   } = useStore();
 
   const pendingAdminOrders = orders.filter(
@@ -70,7 +71,17 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCart, onOpenTracking }) =>
             </span>
           </div>
 
-          <div className="flex items-center gap-3 ml-auto text-[11px]">
+          <div className="flex items-center gap-2.5 ml-auto text-[11px]">
+            {isDatabaseConnected ? (
+              <span className="flex items-center gap-1 bg-emerald-900/80 text-emerald-200 border border-emerald-600/50 px-2 py-0.5 rounded font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>Supabase Live</span>
+              </span>
+            ) : (
+              <span className="hidden sm:flex items-center gap-1 bg-emerald-900/50 text-emerald-300 px-2 py-0.5 rounded font-medium text-[10px]">
+                <span>Demo (Local Cache)</span>
+              </span>
+            )}
             <span className="hidden lg:inline bg-emerald-700/80 px-2 py-0.5 rounded text-emerald-100 font-medium">
               Deliveries: Northcliff R40 · Windsor R40 · Blairgowrie R25
             </span>
@@ -80,7 +91,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCart, onOpenTracking }) =>
               className="flex items-center gap-1 text-emerald-200 hover:text-white transition-colors cursor-pointer bg-emerald-900/50 px-2 py-0.5 rounded"
             >
               <RotateCcw className="w-3 h-3" />
-              <span>Reset Demo Data</span>
+              <span>Reset Demo</span>
             </button>
           </div>
         </div>
