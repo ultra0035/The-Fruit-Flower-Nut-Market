@@ -139,9 +139,9 @@ export const supabaseService = {
   },
 
   // Products
-  async getProducts(): Promise<Product[]> {
+  async getProducts(): Promise<{ data: Product[] | null; error?: string }> {
     const client = getSupabase();
-    if (!client) return [];
+    if (!client) return { data: null, error: 'Database not initialized' };
     const { data, error } = await client
       .from('products')
       .select('*')
@@ -149,10 +149,10 @@ export const supabaseService = {
 
     if (error) {
       console.warn('Supabase getProducts error:', error.message);
-      return [];
+      return { data: null, error: error.message };
     }
 
-    return (data || []).map((p: any) => ({
+    const mapped = (data || []).map((p: any) => ({
       id: p.id,
       name: p.name,
       category: p.category,
@@ -166,6 +166,8 @@ export const supabaseService = {
       imageUrl: p.image_url,
       origin: p.origin || undefined,
     }));
+
+    return { data: mapped };
   },
 
   async upsertProduct(product: Product): Promise<boolean> {
@@ -185,6 +187,13 @@ export const supabaseService = {
       image_url: product.imageUrl,
       origin: product.origin,
     });
+    return !error;
+  },
+
+  async deleteProduct(productId: string): Promise<boolean> {
+    const client = getSupabase();
+    if (!client) return false;
+    const { error } = await client.from('products').delete().eq('id', productId);
     return !error;
   },
 
@@ -358,13 +367,38 @@ export const supabaseService = {
     if (!client) return null;
 
     const channel = client
-      .channel('schema-db-changes')
+      .channel('orders-db-changes')
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'orders',
+        },
+        () => {
+          onUpdate();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      client?.removeChannel(channel);
+    };
+  },
+
+  // Real-time listener for products table
+  subscribeToProducts(onUpdate: () => void) {
+    const client = getSupabase();
+    if (!client) return null;
+
+    const channel = client
+      .channel('products-db-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'products',
         },
         () => {
           onUpdate();

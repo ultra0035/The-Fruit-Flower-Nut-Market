@@ -11,6 +11,7 @@ import {
   Globe,
   UploadCloud,
   Check,
+  Sparkles,
 } from 'lucide-react';
 import {
   getSupabaseConfig,
@@ -29,7 +30,13 @@ export const DatabaseStatusModal: React.FC<DatabaseStatusModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { orders, showNotification } = useStore();
+  const {
+    orders,
+    products,
+    showNotification,
+    refreshFromDatabase,
+    seedDefaultProductsToDatabase,
+  } = useStore();
   const config = getSupabaseConfig();
 
   const [testing, setTesting] = useState(false);
@@ -42,6 +49,8 @@ export const DatabaseStatusModal: React.FC<DatabaseStatusModalProps> = ({
   const [customUrl, setCustomUrl] = useState(config.url || '');
   const [customKey, setCustomKey] = useState(config.key || '');
   const [isSyncingOrders, setIsSyncingOrders] = useState(false);
+  const [isRefreshingProducts, setIsRefreshingProducts] = useState(false);
+  const [isSeedingProducts, setIsSeedingProducts] = useState(false);
   const [syncCount, setSyncCount] = useState<number | null>(null);
 
   const runTest = async () => {
@@ -247,6 +256,63 @@ export const DatabaseStatusModal: React.FC<DatabaseStatusModalProps> = ({
                   Retest
                 </button>
               </div>
+            </div>
+          </div>
+
+          {/* Products & Catalog Synchronization */}
+          <div className="p-3 bg-amber-50/60 border border-amber-200 rounded-2xl space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs font-bold text-amber-950">
+                  Products & Catalog Sync ({products.length} loaded)
+                </div>
+                <div className="text-[11px] text-amber-800">
+                  If you deleted or added rows in Supabase Table Editor, sync here to update the frontend immediately.
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button
+                type="button"
+                disabled={isRefreshingProducts}
+                onClick={async () => {
+                  setIsRefreshingProducts(true);
+                  await refreshFromDatabase();
+                  setIsRefreshingProducts(false);
+                  showNotification('Products refreshed directly from Supabase!');
+                }}
+                className="py-1.5 px-3 bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingProducts ? 'animate-spin' : ''}`} />
+                <span>Pull from Supabase</span>
+              </button>
+              <button
+                type="button"
+                disabled={isSeedingProducts}
+                onClick={async () => {
+                  setIsSeedingProducts(true);
+                  await seedDefaultProductsToDatabase();
+                  setIsSeedingProducts(false);
+                }}
+                className="py-1.5 px-3 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <Sparkles className={`w-3.5 h-3.5 ${isSeedingProducts ? 'animate-spin' : ''}`} />
+                <span>Seed Sample Items</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    localStorage.removeItem('ffn_products_v1');
+                    localStorage.removeItem('ffn_orders_v1');
+                    showNotification('Cleared local browser cache! Refreshing from database...');
+                    refreshFromDatabase();
+                  } catch (e) {}
+                }}
+                className="py-1.5 px-2.5 text-stone-500 hover:text-red-700 hover:bg-red-50 text-[11px] font-medium rounded-lg transition-colors cursor-pointer ml-auto"
+              >
+                Clear Browser Cache
+              </button>
             </div>
           </div>
 

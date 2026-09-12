@@ -53,6 +53,8 @@ interface StoreContextType {
   setTrackedOrderId: (orderId: string | null) => void;
   showNotification: (msg: string) => void;
   resetToDefaultData: () => void;
+  refreshFromDatabase: () => Promise<void>;
+  seedDefaultProductsToDatabase: () => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -133,7 +135,41 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const [trackedOrderId, setTrackedOrderId] = useState<string | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
-  const [isDatabaseConnected] = useState<boolean>(isSupabaseConfigured());
+  const [isDatabaseConnected, setIsDatabaseConnected] = useState<boolean>(isSupabaseConfigured());
+
+  const refreshFromDatabase = async () => {
+    if (!isSupabaseConfigured()) {
+      setIsDatabaseConnected(false);
+      return;
+    }
+
+    try {
+      const [productsRes, driversRes, zonesRes, ordersRes] = await Promise.all([
+        supabaseService.getProducts(),
+        supabaseService.getDrivers(),
+        supabaseService.getDeliveryZones(),
+        supabaseService.getOrders(),
+      ]);
+
+      // If query was successful without error, database is the single source of truth
+      // Even if table is empty (0 products), productsRes.data will be [] and we reflect it!
+      if (!productsRes.error && productsRes.data !== null) {
+        setProducts(productsRes.data);
+        setIsDatabaseConnected(true);
+      }
+      if (driversRes && driversRes.length > 0) {
+        setDrivers(driversRes);
+      }
+      if (zonesRes && zonesRes.length > 0) {
+        setSuburbs(zonesRes);
+      }
+      if (ordersRes && ordersRes.length > 0) {
+        setOrders(ordersRes);
+      }
+    } catch (err) {
+      console.warn('Failed to refresh Supabase data:', err);
+    }
+  };
 
   // Hydrate from Supabase database if configured, with fallback to local storage
   useEffect(() => {
@@ -142,7 +178,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     let isMounted = true;
     async function loadSupabaseData() {
       try {
-        const [dbProducts, dbDrivers, dbZones, dbOrders] = await Promise.all([
+        const [productsRes, driversRes, zonesRes, ordersRes] = await Promise.all([
           supabaseService.getProducts(),
           supabaseService.getDrivers(),
           supabaseService.getDeliveryZones(),
@@ -150,10 +186,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         ]);
 
         if (isMounted) {
-          if (dbProducts && dbProducts.length > 0) setProducts(dbProducts);
-          if (dbDrivers && dbDrivers.length > 0) setDrivers(dbDrivers);
-          if (dbZones && dbZones.length > 0) setSuburbs(dbZones);
-          if (dbOrders && dbOrders.length > 0) setOrders(dbOrders);
+          if (!productsRes.error && productsRes.data !== null) {
+            setProducts(productsRes.data);
+            setIsDatabaseConnected(true);
+          }
+          if (driversRes && driversRes.length > 0) setDrivers(driversRes);
+          if (zonesRes && zonesRes.length > 0) setSuburbs(zonesRes);
+          if (ordersRes && ordersRes.length > 0) setOrders(ordersRes);
         }
       } catch (err) {
         console.warn('Failed to load initial Supabase data:', err);
@@ -163,20 +202,33 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     loadSupabaseData();
 
     // Subscribe to real-time order updates across all devices/portals
-    const unsubscribe = supabaseService.subscribeToOrders(async () => {
+    const unsubscribeOrders = supabaseService.subscribeToOrders(async () => {
       try {
-        const latestOrders = await supabaseService.getOrders();
-        if (isMounted && latestOrders && latestOrders.length > 0) {
-          setOrders(latestOrders);
+        const res = await supabaseService.getOrders();
+        if (isMounted && res && res.length > 0) {
+          setOrders(res);
         }
       } catch (err) {
         console.warn('Realtime orders refresh error:', err);
       }
     });
 
+    // Subscribe to real-time product updates (when products are added, edited, or deleted in Supabase)
+    const unsubscribeProducts = supabaseService.subscribeToProducts(async () => {
+      try {
+        const res = await supabaseService.getProducts();
+        if (isMounted && !res.error && res.data !== null) {
+          setProducts(res.data);
+        }
+      } catch (err) {
+        console.warn('Realtime products refresh error:', err);
+      }
+    });
+
     return () => {
       isMounted = false;
-      if (unsubscribe) unsubscribe();
+      if (unsubscribeOrders) unsubscribeOrders();
+      if (unsubscribeProducts) unsubscribeProducts();
     };
   }, []);
 
@@ -444,6 +496,36 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const deleteProduct = (productId: string) => {
     setProducts((prev) => prev.filter((p) => p.id !== productId));
     showNotification('Product removed from catalog.');
+
+    if (isSupabaseConfigured()) {
+      supabaseService.deleteProduct(productId).catch((err) => {
+        console.warn('Failed to delete product from Supabase:', err);
+      });
+    }
+  };
+
+  const seedDefaultProductsToDatabase = async () => {
+    if (!isSupabaseConfigured()) {
+      setProducts(INITIAL_PRODUCTS);
+      showNotification('Demo products restored in local storage (Supabase not configured)');
+      return;
+    }
+
+    showNotification('Seeding default produce, nuts & flowers to Supabase...');
+    try {
+      let count = 0;
+      for (const prod of INITIAL_PRODUCTS) {
+        const ok = await supabaseService.upsertProduct(prod);
+        if (ok) count++;
+      }
+      const refreshed = await supabaseService.getProducts();
+      if (!refreshed.error && refreshed.data) {
+        setProducts(refreshed.data);
+      }
+      showNotification(`Successfully synced ${count} products to your Supabase public.products table!`);
+    } catch (err: any) {
+      showNotification(`Failed to seed products: ${err.message}`);
+    }
   };
 
   // Suburb management
@@ -502,6 +584,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setTrackedOrderId,
         showNotification,
         resetToDefaultData,
+        refreshFromDatabase,
+        seedDefaultProductsToDatabase,
       }}
     >
       {children}

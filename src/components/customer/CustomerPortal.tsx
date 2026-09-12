@@ -16,6 +16,8 @@ import {
   ShoppingBag,
   ArrowRight,
   Filter,
+  RefreshCw,
+  Database,
 } from 'lucide-react';
 import { STORE_INFO } from '../../data/mockData';
 
@@ -30,13 +32,23 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
   isCartOpen,
   setIsCartOpen,
 }) => {
-  const { products, cartCount, cartTotal, setTrackedOrderId } = useStore();
+  const {
+    products,
+    cartCount,
+    cartTotal,
+    setTrackedOrderId,
+    refreshFromDatabase,
+    seedDefaultProductsToDatabase,
+    isDatabaseConnected,
+  } = useStore();
 
   const [selectedCategory, setSelectedCategory] = useState<CategoryType>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<string>('all');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [isSeeding, setIsSeeding] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const categories = [
     { id: 'all', label: 'All Items', emoji: '🛒' },
@@ -233,7 +245,47 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
             </span>
           </div>
 
-          {filteredProducts.length === 0 ? (
+          {products.length === 0 ? (
+            <div className="bg-white rounded-3xl p-8 sm:p-12 text-center border border-stone-200 max-w-lg mx-auto my-8 shadow-xs">
+              <div className="w-16 h-16 bg-amber-50 text-amber-700 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-amber-200">
+                <Database className="w-8 h-8" />
+              </div>
+              <h3 className="font-extrabold text-stone-900 text-lg mb-2">
+                Catalog is Empty (0 Products)
+              </h3>
+              <p className="text-xs text-stone-600 mb-6 leading-relaxed">
+                Your Supabase <code className="bg-stone-100 px-1.5 py-0.5 rounded text-stone-800 font-mono text-[11px]">public.products</code> table has zero items or was cleared. Any changes you make in Supabase will instantly reflect here.
+              </p>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                <button
+                  type="button"
+                  disabled={isSeeding}
+                  onClick={async () => {
+                    setIsSeeding(true);
+                    await seedDefaultProductsToDatabase();
+                    setIsSeeding(false);
+                  }}
+                  className="w-full sm:w-auto px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <Sparkles className={`w-4 h-4 ${isSeeding ? 'animate-spin' : ''}`} />
+                  <span>{isSeeding ? 'Seeding to Supabase...' : 'Seed 16 Fresh Items to Supabase'}</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isRefreshing}
+                  onClick={async () => {
+                    setIsRefreshing(true);
+                    await refreshFromDatabase();
+                    setIsRefreshing(false);
+                  }}
+                  className="w-full sm:w-auto px-4 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                  <span>{isRefreshing ? 'Refreshing...' : 'Refresh from Database'}</span>
+                </button>
+              </div>
+            </div>
+          ) : filteredProducts.length === 0 ? (
             <div className="bg-white rounded-3xl p-12 text-center border border-stone-200 max-w-md mx-auto my-8">
               <div className="text-4xl mb-3">🔍</div>
               <h3 className="font-extrabold text-stone-900 text-base mb-1">
@@ -248,7 +300,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                   setSelectedCategory('all');
                   setSelectedTag('all');
                 }}
-                className="px-4 py-2 bg-emerald-700 text-white font-bold rounded-xl text-xs hover:bg-emerald-800"
+                className="px-4 py-2 bg-emerald-700 text-white font-bold rounded-xl text-xs hover:bg-emerald-800 cursor-pointer"
               >
                 Reset Filters
               </button>
