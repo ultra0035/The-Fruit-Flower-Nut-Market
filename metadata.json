@@ -1,0 +1,6 @@
+{
+  "name": "The Fruit, Flower & Nut Market",
+  "description": "Local grocery ordering, admin store management, and driver dispatch for The Fruit, Flower & Nut Market in Blairgowrie, Johannesburg.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
