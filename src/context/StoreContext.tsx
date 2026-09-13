@@ -9,12 +9,6 @@ import {
   OrderStatus,
   ProofOfDelivery,
 } from '../types';
-import {
-  INITIAL_PRODUCTS,
-  INITIAL_SUBURBS,
-  INITIAL_DRIVERS,
-  INITIAL_ORDERS,
-} from '../data/mockData';
 import { supabaseService, isSupabaseConfigured } from '../lib/supabase';
 
 interface StoreContextType {
@@ -28,6 +22,7 @@ interface StoreContextType {
   trackedOrderId: string | null;
   notification: string | null;
   isDatabaseConnected: boolean;
+  isLoadingData: boolean;
   // Cart Actions
   addToCart: (product: Product, quantity?: number) => void;
   updateCartQuantity: (productId: string, quantity: number) => void;
@@ -52,59 +47,33 @@ interface StoreContextType {
   setSelectedDriverId: (driverId: string) => void;
   setTrackedOrderId: (orderId: string | null) => void;
   showNotification: (msg: string) => void;
-  resetToDefaultData: () => void;
   refreshFromDatabase: () => Promise<void>;
-  seedDefaultProductsToDatabase: () => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 const STORAGE_KEYS = {
-  PRODUCTS: 'ffn_products_v1',
-  ORDERS: 'ffn_orders_v1',
-  SUBURBS: 'ffn_suburbs_v1',
-  DRIVERS: 'ffn_drivers_v1',
-  CART: 'ffn_cart_v1',
-  PORTAL: 'ffn_portal_v1',
-  DRIVER_ID: 'ffn_driver_id_v1',
+  CART: 'ffn_cart_v2',
+  PORTAL: 'ffn_portal_v2',
+  DRIVER_ID: 'ffn_driver_id_v2',
 };
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [products, setProducts] = useState<Product[]>(() => {
+  // Clear any legacy demo data from previous sessions
+  useEffect(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
-      return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
-    } catch {
-      return INITIAL_PRODUCTS;
-    }
-  });
+      localStorage.removeItem('ffn_products_v1');
+      localStorage.removeItem('ffn_orders_v1');
+      localStorage.removeItem('ffn_suburbs_v1');
+      localStorage.removeItem('ffn_drivers_v1');
+    } catch {}
+  }, []);
 
-  const [orders, setOrders] = useState<Order[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.ORDERS);
-      return saved ? JSON.parse(saved) : INITIAL_ORDERS;
-    } catch {
-      return INITIAL_ORDERS;
-    }
-  });
-
-  const [suburbs, setSuburbs] = useState<SuburbDelivery[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.SUBURBS);
-      return saved ? JSON.parse(saved) : INITIAL_SUBURBS;
-    } catch {
-      return INITIAL_SUBURBS;
-    }
-  });
-
-  const [drivers, setDrivers] = useState<Driver[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.DRIVERS);
-      return saved ? JSON.parse(saved) : INITIAL_DRIVERS;
-    } catch {
-      return INITIAL_DRIVERS;
-    }
-  });
+  const [products, setProducts] = useState<Product[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [suburbs, setSuburbs] = useState<SuburbDelivery[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [isLoadingData, setIsLoadingData] = useState<boolean>(true);
 
   const [cart, setCart] = useState<CartItem[]>(() => {
     try {
@@ -127,9 +96,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [selectedDriverId, setSelectedDriverIdState] = useState<string>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.DRIVER_ID);
-      return saved || 'driver-1';
+      return saved || '';
     } catch {
-      return 'driver-1';
+      return '';
     }
   });
 
@@ -137,9 +106,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [notification, setNotification] = useState<string | null>(null);
   const [isDatabaseConnected, setIsDatabaseConnected] = useState<boolean>(isSupabaseConfigured());
 
+  const showNotification = useCallback((msg: string) => {
+    setNotification(msg);
+    setTimeout(() => {
+      setNotification((curr) => (curr === msg ? null : curr));
+    }, 4000);
+  }, []);
+
   const refreshFromDatabase = async () => {
+    setIsLoadingData(true);
     if (!isSupabaseConfigured()) {
       setIsDatabaseConnected(false);
+      setIsLoadingData(false);
       return;
     }
 
@@ -151,61 +129,44 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         supabaseService.getOrders(),
       ]);
 
-      // If query was successful without error, database is the single source of truth
-      // Even if table is empty (0 products), productsRes.data will be [] and we reflect it!
       if (!productsRes.error && productsRes.data !== null) {
         setProducts(productsRes.data);
         setIsDatabaseConnected(true);
+      } else {
+        setIsDatabaseConnected(false);
       }
-      if (driversRes && driversRes.length > 0) {
+
+      if (driversRes) {
         setDrivers(driversRes);
+        if (driversRes.length > 0 && !selectedDriverId) {
+          setSelectedDriverIdState(driversRes[0].id);
+        }
       }
-      if (zonesRes && zonesRes.length > 0) {
+
+      if (zonesRes) {
         setSuburbs(zonesRes);
       }
-      if (ordersRes && ordersRes.length > 0) {
+
+      if (ordersRes) {
         setOrders(ordersRes);
       }
     } catch (err) {
       console.warn('Failed to refresh Supabase data:', err);
+      setIsDatabaseConnected(false);
+    } finally {
+      setIsLoadingData(false);
     }
   };
 
-  // Hydrate from Supabase database if configured, with fallback to local storage
+  // Initial load directly from Supabase
   useEffect(() => {
-    if (!isSupabaseConfigured()) return;
+    refreshFromDatabase();
 
-    let isMounted = true;
-    async function loadSupabaseData() {
-      try {
-        const [productsRes, driversRes, zonesRes, ordersRes] = await Promise.all([
-          supabaseService.getProducts(),
-          supabaseService.getDrivers(),
-          supabaseService.getDeliveryZones(),
-          supabaseService.getOrders(),
-        ]);
-
-        if (isMounted) {
-          if (!productsRes.error && productsRes.data !== null) {
-            setProducts(productsRes.data);
-            setIsDatabaseConnected(true);
-          }
-          if (driversRes && driversRes.length > 0) setDrivers(driversRes);
-          if (zonesRes && zonesRes.length > 0) setSuburbs(zonesRes);
-          if (ordersRes && ordersRes.length > 0) setOrders(ordersRes);
-        }
-      } catch (err) {
-        console.warn('Failed to load initial Supabase data:', err);
-      }
-    }
-
-    loadSupabaseData();
-
-    // Subscribe to real-time order updates across all devices/portals
+    // Subscribe to real-time order updates
     const unsubscribeOrders = supabaseService.subscribeToOrders(async () => {
       try {
         const res = await supabaseService.getOrders();
-        if (isMounted && res && res.length > 0) {
+        if (res) {
           setOrders(res);
         }
       } catch (err) {
@@ -213,11 +174,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     });
 
-    // Subscribe to real-time product updates (when products are added, edited, or deleted in Supabase)
+    // Subscribe to real-time product updates
     const unsubscribeProducts = supabaseService.subscribeToProducts(async () => {
       try {
         const res = await supabaseService.getProducts();
-        if (isMounted && !res.error && res.data !== null) {
+        if (!res.error && res.data !== null) {
           setProducts(res.data);
         }
       } catch (err) {
@@ -226,49 +187,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
 
     return () => {
-      isMounted = false;
       if (unsubscribeOrders) unsubscribeOrders();
       if (unsubscribeProducts) unsubscribeProducts();
     };
   }, []);
 
-  // Sync to localStorage as offline / local cache
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
-    } catch {}
-  }, [products]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
-    } catch {}
-  }, [orders]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.SUBURBS, JSON.stringify(suburbs));
-    } catch {}
-  }, [suburbs]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.DRIVERS, JSON.stringify(drivers));
-    } catch {}
-  }, [drivers]);
-
+  // Save cart
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEYS.CART, JSON.stringify(cart));
     } catch {}
   }, [cart]);
-
-  const showNotification = (msg: string) => {
-    setNotification(msg);
-    setTimeout(() => {
-      setNotification(null);
-    }, 4000);
-  };
 
   const setCurrentPortal = (portal: PortalType) => {
     setCurrentPortalState(portal);
@@ -277,10 +206,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch {}
   };
 
-  const setSelectedDriverId = (id: string) => {
-    setSelectedDriverIdState(id);
+  const setSelectedDriverId = (driverId: string) => {
+    setSelectedDriverIdState(driverId);
     try {
-      localStorage.setItem(STORAGE_KEYS.DRIVER_ID, id);
+      localStorage.setItem(STORAGE_KEYS.DRIVER_ID, driverId);
     } catch {}
   };
 
@@ -297,7 +226,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       return [...prev, { product, quantity }];
     });
-    showNotification(`Added ${product.name} to cart`);
+    showNotification(`Added ${product.name} to cart.`);
   };
 
   const updateCartQuantity = (productId: string, quantity: number) => {
@@ -314,6 +243,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const removeFromCart = (productId: string) => {
     setCart((prev) => prev.filter((item) => item.product.id !== productId));
+    showNotification('Item removed from cart.');
   };
 
   const clearCart = () => {
@@ -327,14 +257,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
-  // Order operations
-  const placeOrder = (
-    orderData: Omit<Order, 'id' | 'status' | 'createdAt'>
-  ): Order => {
-    const randomNum = Math.floor(1000 + Math.random() * 9000);
+  // Place order
+  const placeOrder = (orderData: Omit<Order, 'id' | 'status' | 'createdAt'>): Order => {
     const newOrder: Order = {
       ...orderData,
-      id: `FFN-${randomNum}`,
+      id: `ORD-${Date.now().toString().slice(-6)}`,
       status: 'pending',
       createdAt: new Date().toISOString(),
     };
@@ -342,26 +269,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setOrders((prev) => [newOrder, ...prev]);
     clearCart();
     setTrackedOrderId(newOrder.id);
-    showNotification(`Order #${newOrder.id} placed successfully!`);
+    showNotification(`Order ${newOrder.id} placed successfully!`);
 
-    // Sync to Supabase if configured
+    // Sync to Supabase directly
     if (isSupabaseConfigured()) {
-      supabaseService
-        .createOrder(newOrder)
-        .then((res) => {
-          if (!res.success) {
-            console.warn('Could not save order to Supabase:', res.error);
-            showNotification(`⚠️ Order saved locally, but database sync error: ${res.error}`);
-          } else {
-            showNotification(`✅ Order #${newOrder.id} saved to live Supabase database!`);
-          }
-        })
-        .catch((err) => {
-          console.warn('Could not save order to Supabase:', err);
-          showNotification(`⚠️ Order saved locally (database unreachable)`);
-        });
-    } else {
-      showNotification(`Order #${newOrder.id} placed! (Stored in Demo Local Cache)`);
+      supabaseService.createOrder(newOrder).catch((err) => {
+        console.warn('Failed to push order to Supabase:', err);
+      });
     }
 
     return newOrder;
@@ -369,9 +283,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const updateOrderStatus = (orderId: string, status: OrderStatus) => {
     setOrders((prev) =>
-      prev.map((ord) => (ord.id === orderId ? { ...ord, status } : ord))
+      prev.map((o) => (o.id === orderId ? { ...o, status } : o))
     );
-    showNotification(`Order #${orderId} marked as ${status.replace(/_/g, ' ')}`);
+    showNotification(`Order status updated to "${status}".`);
 
     if (isSupabaseConfigured()) {
       supabaseService.updateOrderStatus(orderId, status).catch(console.warn);
@@ -383,33 +297,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!driver) return;
 
     setOrders((prev) =>
-      prev.map((ord) =>
-        ord.id === orderId
+      prev.map((o) =>
+        o.id === orderId
           ? {
-              ...ord,
+              ...o,
               assignedDriverId: driver.id,
               assignedDriverName: driver.name,
               assignedDriverPhone: driver.phone,
-              status: ord.status === 'pending' ? 'packing' : ord.status,
-              estimatedDeliveryTime: 'Assigned · Packing at 2 Fir Cnr',
+              status: 'packing' as OrderStatus,
             }
-          : ord
+          : o
       )
     );
-
-    setDrivers((prev) =>
-      prev.map((d) =>
-        d.id === driverId
-          ? {
-              ...d,
-              activeOrdersCount: d.activeOrdersCount + 1,
-              status: 'busy',
-            }
-          : d
-      )
-    );
-
-    showNotification(`Assigned ${driver.name} to order #${orderId}`);
+    showNotification(`Assigned driver ${driver.name} to order.`);
 
     if (isSupabaseConfigured()) {
       supabaseService.assignDriver(orderId, driver.id, driver.name, driver.phone).catch(console.warn);
@@ -417,38 +317,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const completeDelivery = (orderId: string, proof: ProofOfDelivery) => {
-    const order = orders.find((o) => o.id === orderId);
-
     setOrders((prev) =>
-      prev.map((ord) =>
-        ord.id === orderId
+      prev.map((o) =>
+        o.id === orderId
           ? {
-              ...ord,
-              status: 'delivered',
+              ...o,
+              status: 'delivered' as OrderStatus,
               proofOfDelivery: proof,
             }
-          : ord
+          : o
       )
     );
-
-    if (order?.assignedDriverId) {
-      setDrivers((prev) =>
-        prev.map((d) => {
-          if (d.id === order.assignedDriverId) {
-            return {
-              ...d,
-              activeOrdersCount: Math.max(0, d.activeOrdersCount - 1),
-              totalDeliveries: d.totalDeliveries + 1,
-              todayEarnings: d.todayEarnings + (order.deliveryFee || 40),
-              status: d.activeOrdersCount <= 1 ? 'available' : 'busy',
-            };
-          }
-          return d;
-        })
-      );
-    }
-
-    showNotification(`Order #${orderId} delivered!`);
+    showNotification('Delivery confirmed and marked as complete!');
 
     if (isSupabaseConfigured()) {
       supabaseService.completeDelivery(orderId, proof).catch(console.warn);
@@ -457,28 +337,30 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const cancelOrder = (orderId: string) => {
     setOrders((prev) =>
-      prev.map((ord) =>
-        ord.id === orderId ? { ...ord, status: 'cancelled' } : ord
+      prev.map((o) =>
+        o.id === orderId ? { ...o, status: 'cancelled' as OrderStatus } : o
       )
     );
-    showNotification(`Order #${orderId} was cancelled.`);
+    showNotification('Order has been cancelled.');
 
     if (isSupabaseConfigured()) {
       supabaseService.updateOrderStatus(orderId, 'cancelled').catch(console.warn);
     }
   };
 
-  // Product CRUD
-  const addProduct = (productData: Omit<Product, 'id'>) => {
+  // Product management
+  const addProduct = (newProdData: Omit<Product, 'id'>) => {
     const newProduct: Product = {
-      ...productData,
+      ...newProdData,
       id: `prod-${Date.now()}`,
     };
     setProducts((prev) => [newProduct, ...prev]);
-    showNotification(`Added new product: ${newProduct.name}`);
+    showNotification(`Added product ${newProduct.name}`);
 
     if (isSupabaseConfigured()) {
-      supabaseService.upsertProduct(newProduct).catch(console.warn);
+      supabaseService.upsertProduct(newProduct).catch((err) => {
+        console.warn('Failed to save product to Supabase:', err);
+      });
     }
   };
 
@@ -486,7 +368,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setProducts((prev) =>
       prev.map((p) => (p.id === updated.id ? updated : p))
     );
-    showNotification(`Updated: ${updated.name}`);
+    showNotification(`Updated product ${updated.name}`);
 
     if (isSupabaseConfigured()) {
       supabaseService.upsertProduct(updated).catch(console.warn);
@@ -504,30 +386,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  const seedDefaultProductsToDatabase = async () => {
-    if (!isSupabaseConfigured()) {
-      setProducts(INITIAL_PRODUCTS);
-      showNotification('Demo products restored in local storage (Supabase not configured)');
-      return;
-    }
-
-    showNotification('Seeding default produce, nuts & flowers to Supabase...');
-    try {
-      let count = 0;
-      for (const prod of INITIAL_PRODUCTS) {
-        const ok = await supabaseService.upsertProduct(prod);
-        if (ok) count++;
-      }
-      const refreshed = await supabaseService.getProducts();
-      if (!refreshed.error && refreshed.data) {
-        setProducts(refreshed.data);
-      }
-      showNotification(`Successfully synced ${count} products to your Supabase public.products table!`);
-    } catch (err: any) {
-      showNotification(`Failed to seed products: ${err.message}`);
-    }
-  };
-
   // Suburb management
   const updateSuburbFee = (suburbName: string, fee: number) => {
     setSuburbs((prev) =>
@@ -539,15 +397,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const addSuburb = (newSub: SuburbDelivery) => {
     setSuburbs((prev) => [...prev, newSub]);
     showNotification(`Added suburb ${newSub.suburb} (R${newSub.fee})`);
-  };
-
-  const resetToDefaultData = () => {
-    setProducts(INITIAL_PRODUCTS);
-    setOrders(INITIAL_ORDERS);
-    setSuburbs(INITIAL_SUBURBS);
-    setDrivers(INITIAL_DRIVERS);
-    setCart([]);
-    showNotification('Demo store data refreshed to default!');
   };
 
   return (
@@ -563,6 +412,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         trackedOrderId,
         notification,
         isDatabaseConnected,
+        isLoadingData,
         addToCart,
         updateCartQuantity,
         removeFromCart,
@@ -583,9 +433,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setSelectedDriverId,
         setTrackedOrderId,
         showNotification,
-        resetToDefaultData,
         refreshFromDatabase,
-        seedDefaultProductsToDatabase,
       }}
     >
       {children}

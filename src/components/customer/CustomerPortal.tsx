@@ -5,6 +5,7 @@ import { ProductCard } from './ProductCard';
 import { ProductModal } from './ProductModal';
 import { CartDrawer } from './CartDrawer';
 import { CheckoutModal } from './CheckoutModal';
+import { DatabaseStatusModal } from '../common/DatabaseStatusModal';
 import {
   Search,
   Sparkles,
@@ -18,6 +19,7 @@ import {
   Filter,
   RefreshCw,
   Database,
+  Key,
 } from 'lucide-react';
 import { STORE_INFO } from '../../data/mockData';
 
@@ -38,8 +40,8 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
     cartTotal,
     setTrackedOrderId,
     refreshFromDatabase,
-    seedDefaultProductsToDatabase,
     isDatabaseConnected,
+    isLoadingData,
   } = useStore();
 
   const [selectedCategory, setSelectedCategory] = useState<CategoryType>('all');
@@ -47,7 +49,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
   const [selectedTag, setSelectedTag] = useState<string>('all');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
-  const [isSeeding, setIsSeeding] = useState(false);
+  const [isDbModalOpen, setIsDbModalOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const categories = [
@@ -171,6 +173,32 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
 
       {/* Main Content & Catalog */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 -mt-6 relative z-20">
+        {/* Database Connection Notice if not connected */}
+        {!isDatabaseConnected && (
+          <div className="mb-4 bg-amber-900/90 text-amber-100 p-3 sm:p-4 rounded-2xl shadow-lg border border-amber-700/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                <Database className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-white">
+                  Database Disconnected
+                </h4>
+                <p className="text-[11px] text-amber-200/80">
+                  Connect your Supabase project to load live inventory, orders, and driver dispatches directly from PostgreSQL.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setIsDbModalOpen(true)}
+              className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-bold rounded-xl transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              <Key className="w-3.5 h-3.5" />
+              <span>Connect Supabase</span>
+            </button>
+          </div>
+        )}
+
         {/* Search & Filter Bar */}
         <div className="bg-white rounded-2xl p-4 shadow-lg border border-stone-200/80 mb-6 space-y-4">
           <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
@@ -245,30 +273,39 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
             </span>
           </div>
 
-          {products.length === 0 ? (
+          {isLoadingData ? (
+            <div className="bg-white rounded-3xl p-12 text-center border border-stone-200 max-w-lg mx-auto my-8 shadow-xs">
+              <div className="w-12 h-12 bg-emerald-50 text-emerald-700 rounded-2xl flex items-center justify-center mx-auto mb-3 border border-emerald-200">
+                <RefreshCw className="w-6 h-6 animate-spin" />
+              </div>
+              <h3 className="font-extrabold text-stone-900 text-base mb-1">
+                Loading products from Supabase...
+              </h3>
+              <p className="text-xs text-stone-500">
+                Fetching live catalog from PostgreSQL <code className="font-mono bg-stone-100 px-1 py-0.5 rounded text-[11px]">public.products</code>
+              </p>
+            </div>
+          ) : products.length === 0 ? (
             <div className="bg-white rounded-3xl p-8 sm:p-12 text-center border border-stone-200 max-w-lg mx-auto my-8 shadow-xs">
               <div className="w-16 h-16 bg-amber-50 text-amber-700 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-amber-200">
                 <Database className="w-8 h-8" />
               </div>
               <h3 className="font-extrabold text-stone-900 text-lg mb-2">
-                Catalog is Empty (0 Products)
+                {isDatabaseConnected ? 'Catalog is Empty (0 Products)' : 'Database Not Connected'}
               </h3>
               <p className="text-xs text-stone-600 mb-6 leading-relaxed">
-                Your Supabase <code className="bg-stone-100 px-1.5 py-0.5 rounded text-stone-800 font-mono text-[11px]">public.products</code> table has zero items or was cleared. Any changes you make in Supabase will instantly reflect here.
+                {isDatabaseConnected
+                  ? 'Your Supabase public.products table currently has 0 rows. Add products via the Admin Portal or insert rows into Supabase.'
+                  : 'Connect your live Supabase database URL and Anon Key to load your products directly.'}
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
                 <button
                   type="button"
-                  disabled={isSeeding}
-                  onClick={async () => {
-                    setIsSeeding(true);
-                    await seedDefaultProductsToDatabase();
-                    setIsSeeding(false);
-                  }}
-                  className="w-full sm:w-auto px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer disabled:opacity-50"
+                  onClick={() => setIsDbModalOpen(true)}
+                  className="w-full sm:w-auto px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
                 >
-                  <Sparkles className={`w-4 h-4 ${isSeeding ? 'animate-spin' : ''}`} />
-                  <span>{isSeeding ? 'Seeding to Supabase...' : 'Seed 16 Fresh Items to Supabase'}</span>
+                  <Key className="w-4 h-4" />
+                  <span>Configure Database Credentials</span>
                 </button>
                 <button
                   type="button"
@@ -281,7 +318,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                   className="w-full sm:w-auto px-4 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
                 >
                   <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-                  <span>{isRefreshing ? 'Refreshing...' : 'Refresh from Database'}</span>
+                  <span>{isRefreshing ? 'Refreshing...' : 'Retry Fetch'}</span>
                 </button>
               </div>
             </div>
@@ -378,6 +415,11 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
           setTrackedOrderId(newOrderId);
           onOpenTracker();
         }}
+      />
+
+      <DatabaseStatusModal
+        isOpen={isDbModalOpen}
+        onClose={() => setIsDbModalOpen(false)}
       />
     </div>
   );

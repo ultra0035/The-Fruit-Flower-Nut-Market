@@ -1,33 +1,69 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Product, Driver, SuburbDelivery, Order, OrderStatus, ProofOfDelivery } from '../types';
 
+export const sanitizeSupabaseUrl = (rawUrl?: string): string => {
+  if (!rawUrl) return '';
+  let cleaned = rawUrl.trim().replace(/^['"`]|['"`]$/g, '');
+  if (!cleaned) return '';
+  // Ensure protocol
+  if (!cleaned.startsWith('http://') && !cleaned.startsWith('https://')) {
+    cleaned = `https://${cleaned}`;
+  }
+  // Strip trailing slash
+  return cleaned.replace(/\/+$/, '');
+};
+
+export const sanitizeSupabaseKey = (rawKey?: string): string => {
+  if (!rawKey) return '';
+  return rawKey.trim().replace(/^['"`]|['"`]$/g, '');
+};
+
 export const getSupabaseConfig = () => {
-  const envUrl = import.meta.env.VITE_SUPABASE_URL;
-  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  // Check standard Vite prefixed variables as well as common fallbacks
+  const envUrl = sanitizeSupabaseUrl(
+    import.meta.env.VITE_SUPABASE_URL ||
+    (import.meta.env as any).VITE_SUPABASE_PROJECT_URL ||
+    (import.meta.env as any).SUPABASE_URL
+  );
+
+  const envKey = sanitizeSupabaseKey(
+    import.meta.env.VITE_SUPABASE_ANON_KEY ||
+    (import.meta.env as any).VITE_SUPABASE_KEY ||
+    (import.meta.env as any).VITE_SUPABASE_PUBLIC_KEY ||
+    (import.meta.env as any).SUPABASE_ANON_KEY
+  );
 
   let localUrl = '';
   let localKey = '';
   try {
-    localUrl = localStorage.getItem('supabase_custom_url') || '';
-    localKey = localStorage.getItem('supabase_custom_key') || '';
+    localUrl = sanitizeSupabaseUrl(localStorage.getItem('supabase_custom_url') || '');
+    localKey = sanitizeSupabaseKey(localStorage.getItem('supabase_custom_key') || '');
   } catch {}
 
-  const url = (envUrl || localUrl || '').trim();
-  const key = (envKey || localKey || '').trim();
+  const url = localUrl || envUrl;
+  const key = localKey || envKey;
+
+  const isPlaceholderUrl =
+    url.includes('your-project-id.supabase.co') ||
+    url.includes('example.supabase.co');
+
+  const isPlaceholderKey =
+    key.includes('your-anon-public-key') ||
+    key.length < 20;
 
   const isConfigured = Boolean(
     url &&
     key &&
-    url !== 'https://your-project-id.supabase.co' &&
-    url.startsWith('https://') &&
-    key !== 'your-anon-public-key'
+    !isPlaceholderUrl &&
+    !isPlaceholderKey &&
+    url.startsWith('https://')
   );
 
   return {
     url,
     key,
     isConfigured,
-    source: envUrl ? 'env' : localUrl ? 'local' : 'none',
+    source: (localUrl && localKey) ? 'local' : (envUrl && envKey) ? 'env' : 'none',
   };
 };
 
@@ -36,27 +72,43 @@ export const isSupabaseConfigured = (): boolean => {
 };
 
 let clientInstance: SupabaseClient | null = null;
+let lastUsedUrl = '';
 let lastUsedKey = '';
 
 export const getSupabase = (): SupabaseClient | null => {
   const config = getSupabaseConfig();
   if (!config.isConfigured) return null;
 
-  if (!clientInstance || lastUsedKey !== config.key) {
-    clientInstance = createClient(config.url, config.key);
-    lastUsedKey = config.key;
+  if (!clientInstance || lastUsedUrl !== config.url || lastUsedKey !== config.key) {
+    try {
+      clientInstance = createClient(config.url, config.key, {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+        },
+      });
+      lastUsedUrl = config.url;
+      lastUsedKey = config.key;
+    } catch (e) {
+      console.error('Failed to instantiate Supabase client:', e);
+      return null;
+    }
   }
   return clientInstance;
 };
 
 export const supabase: SupabaseClient | null = getSupabase();
 
-export const saveCustomCredentials = (url: string, key: string) => {
+export const saveCustomCredentials = (rawUrl: string, rawKey: string) => {
+  const cleanUrl = sanitizeSupabaseUrl(rawUrl);
+  const cleanKey = sanitizeSupabaseKey(rawKey);
   try {
-    localStorage.setItem('supabase_custom_url', url.trim());
-    localStorage.setItem('supabase_custom_key', key.trim());
+    localStorage.setItem('supabase_custom_url', cleanUrl);
+    localStorage.setItem('supabase_custom_key', cleanKey);
   } catch {}
   clientInstance = null;
+  lastUsedUrl = '';
+  lastUsedKey = '';
 };
 
 export const clearCustomCredentials = () => {
@@ -65,6 +117,8 @@ export const clearCustomCredentials = () => {
     localStorage.removeItem('supabase_custom_key');
   } catch {}
   clientInstance = null;
+  lastUsedUrl = '';
+  lastUsedKey = '';
 };
 
 // Map database order row + items to application Order type
@@ -100,49 +154,135 @@ export const formatDbOrder = (row: any, items: any[] = []): Order => {
   };
 };
 
+export interface TestConnectionResult {
+  connected: boolean;
+  message: string;
+  code?: string;
+  actionRequired?: 'missing_env' | 'missing_tables' | 'invalid_key' | 'network_error' | 'rls_policy' | 'none';
+  details?: any;
+}
+
 export const supabaseService = {
-  // Test connection to Supabase
-  async testConnection(): Promise<{ connected: boolean; message: string; details?: any }> {
+  // Comprehensive diagnostic connection test to Supabase
+  async testConnection(): Promise<TestConnectionResult> {
     const config = getSupabaseConfig();
     if (!config.isConfigured) {
+      if (!config.url || !config.key) {
+        return {
+          connected: false,
+          actionRequired: 'missing_env',
+          message:
+            'Supabase credentials are not detected. On Vercel, make sure you set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (and redeploy). In this app, paste them below and click "Apply & Test Connection".',
+        };
+      }
       return {
         connected: false,
+        actionRequired: 'missing_env',
         message:
-          'Supabase environment variables are missing or set to placeholder values. Enter your Supabase URL and Anon Key below and click "Apply & Test Connection".',
+          'Supabase URL or Key appears to be invalid or a placeholder. Enter your real project URL and anon public key.',
       };
     }
+
     const client = getSupabase();
     if (!client) {
-      return { connected: false, message: 'Could not initialize Supabase client.' };
+      return {
+        connected: false,
+        actionRequired: 'network_error',
+        message: 'Could not initialize the Supabase client with the provided credentials.',
+      };
     }
+
+    const startTime = performance.now();
+
     try {
-      // Try products table first since user is managing products catalog
-      const { data: prodData, error: prodErr } = await client.from('products').select('id').limit(1);
+      // 1. Try querying products table
+      const { data: prodData, error: prodErr } = await client
+        .from('products')
+        .select('id, name')
+        .limit(1);
+
+      const elapsed = Math.round(performance.now() - startTime);
+
       if (!prodErr) {
         return {
           connected: true,
-          message: `Connected successfully to Supabase! Table public.products is accessible (${prodData?.length || 0} rows found).`,
-          details: { rowsFound: prodData?.length || 0, table: 'products' },
+          actionRequired: 'none',
+          message: `Connected successfully to Supabase! public.products is active (${prodData?.length || 0} items returned, ${elapsed}ms ping).`,
+          details: { rowsFound: prodData?.length || 0, table: 'products', pingMs: elapsed },
+        };
+      }
+
+      // Check specific Supabase / PostgREST error codes
+      const errMsg = prodErr.message || '';
+      const errCode = prodErr.code || '';
+
+      // Table doesn't exist
+      if (
+        errCode === '42P01' ||
+        errMsg.toLowerCase().includes('relation') ||
+        errMsg.toLowerCase().includes('does not exist') ||
+        errMsg.toLowerCase().includes('could not find the table')
+      ) {
+        return {
+          connected: false,
+          code: errCode,
+          actionRequired: 'missing_tables',
+          message: `Database reached, but table "products" was not found. Please run the SQL schema script in your Supabase SQL Editor.`,
+          details: prodErr,
+        };
+      }
+
+      // Authentication / API Key error
+      if (
+        errCode === 'PGRST301' ||
+        errMsg.toLowerCase().includes('jwt') ||
+        errMsg.toLowerCase().includes('api key') ||
+        errMsg.toLowerCase().includes('unauthorized') ||
+        errMsg.toLowerCase().includes('invalid api key')
+      ) {
+        return {
+          connected: false,
+          code: errCode,
+          actionRequired: 'invalid_key',
+          message: `Authentication failed (${errMsg}). Please check your Supabase anon/public key in Project Settings ➔ API.`,
+          details: prodErr,
         };
       }
 
       // Fallback check on orders table
-      const { data, error } = await client.from('orders').select('id').limit(1);
-      if (error) {
+      const { data: ordData, error: ordErr } = await client.from('orders').select('id').limit(1);
+      if (!ordErr) {
         return {
-          connected: false,
-          message: `Supabase returned error: ${prodErr?.message || error.message} (Code: ${error.code || prodErr?.code || 'UNKNOWN'})`,
-          details: { prodErr, orderErr: error },
+          connected: true,
+          actionRequired: 'none',
+          message: `Connected successfully to Supabase! public.orders is accessible (${ordData?.length || 0} orders found).`,
+          details: { rowsFound: ordData?.length || 0, table: 'orders' },
         };
       }
-      return {
-        connected: true,
-        message: 'Connected successfully to Supabase! Table public.orders is accessible.',
-        details: { rowsFound: data?.length || 0, table: 'orders' },
-      };
-    } catch (err: any) {
+
+      // If both tables failed
       return {
         connected: false,
+        code: prodErr.code || ordErr?.code,
+        actionRequired: 'missing_tables',
+        message: `Connected to Supabase endpoint, but tables were not found: "${prodErr.message}". Run the SQL schema script to create products and orders tables.`,
+        details: { prodErr, ordErr },
+      };
+    } catch (err: any) {
+      const msg = err.message || '';
+      if (msg.toLowerCase().includes('failed to fetch') || msg.toLowerCase().includes('network')) {
+        return {
+          connected: false,
+          actionRequired: 'network_error',
+          message:
+            'Network request failed. Please check your Supabase URL (e.g. https://xxxx.supabase.co) and internet connection.',
+          details: err,
+        };
+      }
+
+      return {
+        connected: false,
+        actionRequired: 'network_error',
         message: err.message || 'Unknown network error connecting to Supabase.',
         details: err,
       };

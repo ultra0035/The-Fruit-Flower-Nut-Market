@@ -103,18 +103,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCart, onOpenTracking }) =>
                 }`}
               />
               <Database className="w-3 h-3" />
-              <span>{isDatabaseConnected ? 'Supabase Live' : 'Demo Mode (Local)'}</span>
-            </button>
-
-            {/* Reset Demo Data Button */}
-            <button
-              id="header-reset-demo-btn"
-              onClick={resetToDefaultData}
-              title="Reset catalog, cart, and sample orders to default state"
-              className="inline-flex items-center gap-1 text-emerald-300 hover:text-white transition-colors cursor-pointer bg-emerald-900/50 hover:bg-emerald-800/60 px-2 py-0.5 rounded-full text-[10px]"
-            >
-              <RotateCcw className="w-2.5 h-2.5" />
-              <span>Reset</span>
+              <span>{isDatabaseConnected ? 'Supabase Connected' : 'Connect Database'}</span>
             </button>
           </div>
         </div>

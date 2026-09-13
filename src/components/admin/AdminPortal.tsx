@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useStore } from '../../context/StoreContext';
 import { Order, Product, CategoryType, OrderStatus, SuburbDelivery } from '../../types';
 import { STORE_INFO } from '../../data/mockData';
+import { DatabaseStatusModal } from '../common/DatabaseStatusModal';
 import {
   DollarSign,
   Package,
@@ -22,6 +23,7 @@ import {
   X,
   Sparkles,
   ExternalLink,
+  Database,
 } from 'lucide-react';
 
 export const AdminPortal: React.FC = () => {
@@ -38,12 +40,14 @@ export const AdminPortal: React.FC = () => {
     updateSuburbFee,
     addSuburb,
     cancelOrder,
+    isDatabaseConnected,
   } = useStore();
 
   const [activeTab, setActiveTab] = useState<'orders' | 'inventory' | 'suburbs' | 'drivers'>('orders');
   const [orderFilter, setOrderFilter] = useState<string>('all');
   const [productSearch, setProductSearch] = useState('');
   const [assigningOrderId, setAssigningOrderId] = useState<string | null>(null);
+  const [isDbModalOpen, setIsDbModalOpen] = useState(false);
 
   // New Product Modal State
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
@@ -146,46 +150,66 @@ export const AdminPortal: React.FC = () => {
             </div>
 
             {/* Navigation tabs inside Admin */}
-            <div className="flex items-center gap-1.5 bg-stone-800/80 p-1.5 rounded-xl border border-stone-700/80 overflow-x-auto">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5 bg-stone-800/80 p-1.5 rounded-xl border border-stone-700/80 overflow-x-auto">
+                <button
+                  onClick={() => setActiveTab('orders')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    activeTab === 'orders'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-stone-400 hover:text-white'
+                  }`}
+                >
+                  Orders ({orders.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab('inventory')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    activeTab === 'inventory'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-stone-400 hover:text-white'
+                  }`}
+                >
+                  Inventory ({products.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab('suburbs')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    activeTab === 'suburbs'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-stone-400 hover:text-white'
+                  }`}
+                >
+                  Suburb Rates ({suburbs.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab('drivers')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    activeTab === 'drivers'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-stone-400 hover:text-white'
+                  }`}
+                >
+                  Drivers ({drivers.length})
+                </button>
+              </div>
+
               <button
-                onClick={() => setActiveTab('orders')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === 'orders'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'text-stone-400 hover:text-white'
+                onClick={() => setIsDbModalOpen(true)}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-xs ${
+                  isDatabaseConnected
+                    ? 'bg-emerald-900/60 border-emerald-500/50 text-emerald-300 hover:bg-emerald-800/70'
+                    : 'bg-amber-950/70 border-amber-500/60 text-amber-300 hover:bg-amber-900/70'
                 }`}
+                title="Configure or test Supabase connection"
               >
-                Orders ({orders.length})
-              </button>
-              <button
-                onClick={() => setActiveTab('inventory')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === 'inventory'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'text-stone-400 hover:text-white'
-                }`}
-              >
-                Inventory ({products.length})
-              </button>
-              <button
-                onClick={() => setActiveTab('suburbs')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === 'suburbs'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'text-stone-400 hover:text-white'
-                }`}
-              >
-                Suburb Rates ({suburbs.length})
-              </button>
-              <button
-                onClick={() => setActiveTab('drivers')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === 'drivers'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'text-stone-400 hover:text-white'
-                }`}
-              >
-                Drivers ({drivers.length})
+                <Database className="w-3.5 h-3.5" />
+                <span>{isDatabaseConnected ? 'Supabase Live' : 'Database Setup'}</span>
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    isDatabaseConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                  }`}
+                />
               </button>
             </div>
           </div>
@@ -274,12 +298,27 @@ export const AdminPortal: React.FC = () => {
             </div>
 
             {/* Orders list */}
-            <div className="space-y-4">
-              {filteredOrders.map((order) => (
-                <div
-                  key={order.id}
-                  className="bg-white rounded-2xl border border-stone-200 p-5 shadow-xs hover:shadow-md transition-shadow"
-                >
+            {filteredOrders.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-stone-200 p-12 text-center max-w-md mx-auto my-8 shadow-xs">
+                <div className="w-14 h-14 bg-stone-100 text-stone-400 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                  <Package className="w-7 h-7" />
+                </div>
+                <h3 className="font-extrabold text-stone-900 text-base mb-1">
+                  No Orders Found
+                </h3>
+                <p className="text-xs text-stone-500 leading-relaxed">
+                  {isDatabaseConnected
+                    ? 'No orders match the selected filter in your Supabase database.'
+                    : 'Your Supabase database is not connected. Connect your database to view live orders.'}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {filteredOrders.map((order) => (
+                  <div
+                    key={order.id}
+                    className="bg-white rounded-2xl border border-stone-200 p-5 shadow-xs hover:shadow-md transition-shadow"
+                  >
                   <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-stone-100">
                     <div className="flex items-start gap-3">
                       <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-black text-sm shrink-0">
@@ -466,8 +505,9 @@ export const AdminPortal: React.FC = () => {
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          )}
+        </div>
+      )}
 
         {/* ======================= INVENTORY TAB ======================= */}
         {activeTab === 'inventory' && (
@@ -1014,6 +1054,12 @@ export const AdminPortal: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Supabase Database Status & Configuration Modal */}
+      <DatabaseStatusModal
+        isOpen={isDbModalOpen}
+        onClose={() => setIsDbModalOpen(false)}
+      />
     </div>
   );
 };

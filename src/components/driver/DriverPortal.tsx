@@ -30,21 +30,27 @@ export const DriverPortal: React.FC = () => {
     setSelectedDriverId,
     updateOrderStatus,
     completeDelivery,
+    isDatabaseConnected,
+    refreshFromDatabase,
   } = useStore();
 
   const currentDriver =
     drivers.find((d) => d.id === selectedDriverId) || drivers[0];
 
   // Active orders assigned to this driver
-  const assignedOrders = orders.filter(
-    (o) =>
-      o.assignedDriverId === currentDriver.id &&
-      (o.status === 'packing' || o.status === 'out_for_delivery')
-  );
+  const assignedOrders = currentDriver
+    ? orders.filter(
+        (o) =>
+          o.assignedDriverId === currentDriver.id &&
+          (o.status === 'packing' || o.status === 'out_for_delivery')
+      )
+    : [];
 
-  const completedOrders = orders.filter(
-    (o) => o.assignedDriverId === currentDriver.id && o.status === 'delivered'
-  );
+  const completedOrders = currentDriver
+    ? orders.filter(
+        (o) => o.assignedDriverId === currentDriver.id && o.status === 'delivered'
+      )
+    : [];
 
   // Modal for Proof of Delivery
   const [deliveringOrderId, setDeliveringOrderId] = useState<string | null>(null);
@@ -98,12 +104,38 @@ export const DriverPortal: React.FC = () => {
       confetti({
         particleCount: 50,
         spread: 60,
-        origin: { y: 0.7 },
+        origin: { y: 0.8 },
       });
     } catch {}
 
     setDeliveringOrderId(null);
   };
+
+  if (!currentDriver) {
+    return (
+      <div className="min-h-screen bg-stone-100 flex items-center justify-center p-6">
+        <div className="bg-white rounded-3xl p-8 max-w-md w-full text-center border border-stone-200 shadow-xl space-y-4">
+          <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto border border-amber-200">
+            <Truck className="w-8 h-8" />
+          </div>
+          <h2 className="text-xl font-black text-stone-900">
+            No Driver Records Found
+          </h2>
+          <p className="text-xs text-stone-600 leading-relaxed">
+            {isDatabaseConnected
+              ? 'Your Supabase public.drivers table is currently empty.'
+              : 'Connect your Supabase database or sync your driver tables to start driver dispatches.'}
+          </p>
+          <button
+            onClick={() => refreshFromDatabase()}
+            className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs transition-colors cursor-pointer"
+          >
+            Refresh from Database
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-stone-100 pb-20">

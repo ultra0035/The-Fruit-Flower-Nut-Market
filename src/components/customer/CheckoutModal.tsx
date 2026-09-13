@@ -27,13 +27,13 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 }) => {
   const { cart, cartTotal, suburbs, placeOrder } = useStore();
 
-  const [customerName, setCustomerName] = useState('Sarah Jenkins');
-  const [customerPhone, setCustomerPhone] = useState('082 459 8812');
-  const [customerEmail, setCustomerEmail] = useState('sarah.jenkins@gmail.com');
-  const [address, setAddress] = useState('28 Frederick Dr');
-  const [suburb, setSuburb] = useState('Northcliff');
-  const [postalCode, setPostalCode] = useState('2195');
-  const [deliveryNotes, setDeliveryNotes] = useState('Gate intercom unit 4. Please call on arrival.');
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [address, setAddress] = useState('');
+  const [suburb, setSuburb] = useState('');
+  const [postalCode, setPostalCode] = useState('');
+  const [deliveryNotes, setDeliveryNotes] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<
     'card_on_delivery' | 'cash_on_delivery' | 'instant_eft'
   >('card_on_delivery');
